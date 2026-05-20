@@ -1,40 +1,19 @@
-# OpenWA - Docker Compose Configuration
-# Smart Orchestration with Profiles
-
 services:
-  # ===== CORE: Traefik Reverse Proxy =====
-  traefik:
-    image: traefik:v3.0
-    container_name: openwa-traefik
-    profiles: ['with-proxy', 'full']
-    restart: unless-stopped
-    ports:
-      - '127.0.0.1:${DASHBOARD_PORT:-2886}:80'
-      - '127.0.0.1:8080:8080' # Traefik dashboard
-    volumes:
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
-    labels:
-      - 'com.openwa.service=proxy'
-      - 'com.openwa.core=true'
-
   # ===== CORE: OpenWA Backend API =====
-  openwa-api:
+  openwa:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: openwa-api
     restart: unless-stopped
     ports:
-      - '127.0.0.1:${API_PORT:-2785}:2785'
+      - 127.0.0.1:${API_PORT:-2785}:2785
     expose:
-      - '2785'
+      - "2785"
     environment:
-      # Core
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=2785
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      # Database
       - DATABASE_TYPE=${DATABASE_TYPE:-sqlite}
       - DATABASE_NAME=${DATABASE_NAME:-/app/data/openwa.sqlite}
       - DATABASE_HOST=${DATABASE_HOST:-postgres}
@@ -42,33 +21,26 @@ services:
       - DATABASE_USERNAME=${DATABASE_USERNAME:-openwa}
       - DATABASE_PASSWORD=${DATABASE_PASSWORD:-openwa}
       - DATABASE_SYNCHRONIZE=${DATABASE_SYNCHRONIZE:-false}
-      # Engine
       - ENGINE_TYPE=${ENGINE_TYPE:-whatsapp-web.js}
       - SESSION_DATA_PATH=/app/data/sessions
       - PUPPETEER_HEADLESS=${PUPPETEER_HEADLESS:-true}
       - PUPPETEER_ARGS=${PUPPETEER_ARGS:---no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu}
-      # Storage
       - STORAGE_TYPE=${STORAGE_TYPE:-local}
       - STORAGE_LOCAL_PATH=/app/data/media
       - S3_ENDPOINT=${S3_ENDPOINT:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-openwa}
-      # Redis
       - REDIS_ENABLED=${REDIS_ENABLED:-false}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
-      # Webhook
       - WEBHOOK_TIMEOUT=${WEBHOOK_TIMEOUT:-10000}
       - WEBHOOK_MAX_RETRIES=${WEBHOOK_MAX_RETRIES:-3}
       - WEBHOOK_RETRY_DELAY=${WEBHOOK_RETRY_DELAY:-5000}
-      # Rate Limit
       - RATE_LIMIT_TTL=${RATE_LIMIT_TTL:-60}
       - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
-      # Plugins
       - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
       - PLUGINS_DIR=/app/data/plugins
-      # Security
       - API_MASTER_KEY=${API_MASTER_KEY:-}
     volumes:
       - openwa-data:/app/data
@@ -83,19 +55,19 @@ services:
         required: false
     healthcheck:
       test:
-        [
-          'CMD',
-          'node',
-          '-e',
-          "require('http').get('http://localhost:2785/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))",
-        ]
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://localhost:2785/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
     labels:
-      - 'com.openwa.service=api'
-      - 'com.openwa.core=true'
+      - com.openwa.service=api
+      - com.openwa.core=true
+    networks:
+      - default
 
   # ===== CORE: Dashboard Frontend =====
   dashboard:
@@ -103,21 +75,30 @@ services:
       context: ./dashboard
       dockerfile: Dockerfile.traefik
     container_name: openwa-dashboard
-    profiles: ['with-dashboard', 'full']
     restart: unless-stopped
     expose:
-      - '80'
+      - "80"
     depends_on:
-      - openwa-api
+      - openwa
     labels:
-      - 'com.openwa.service=dashboard'
-      - 'com.openwa.core=true'
+      - com.openwa.service=dashboard
+      - com.openwa.core=true
+      # Redirection du domaine gérée par le Traefik natif de Dokploy
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.openwa-dashboard.rule=Host(`openwa-openwa-hl260m-237fc8-51-210-177-24.sslip.io`)
+      - traefik.http.routers.openwa-dashboard.entrypoints=web
+      - traefik.http.services.openwa-dashboard.loadbalancer.server.port=80
+    networks:
+      - default
+      - dokploy-network
 
-  # ===== OPTIONAL: Built-in PostgreSQL =====
+  # ===== OPTIONAL Services =====
   postgres:
     image: postgres:16-alpine
     container_name: openwa-postgres
-    profiles: ['postgres']
+    profiles:
+      - postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DATABASE_USERNAME:-openwa}
@@ -126,37 +107,46 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${DATABASE_USERNAME:-openwa}']
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${DATABASE_USERNAME:-openwa}
       interval: 5s
       timeout: 3s
       retries: 5
     labels:
-      - 'com.openwa.service=database'
-      - 'com.openwa.builtin=true'
+      - com.openwa.service=database
+      - com.openwa.builtin=true
+    networks:
+      - default
 
-  # ===== OPTIONAL: Built-in Redis =====
   redis:
     image: redis:7-alpine
     container_name: openwa-redis
-    profiles: ['redis']
+    profiles:
+      - redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test:
+        - CMD
+        - redis-cli
+        - ping
       interval: 5s
       timeout: 3s
       retries: 5
     labels:
-      - 'com.openwa.service=cache'
-      - 'com.openwa.builtin=true'
+      - com.openwa.service=cache
+      - com.openwa.builtin=true
+    networks:
+      - default
 
-  # ===== OPTIONAL: Built-in MinIO (S3-compatible) =====
   minio:
     image: minio/minio
     container_name: openwa-minio
-    profiles: ['minio']
+    profiles:
+      - minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -165,16 +155,22 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - '127.0.0.1:9000:9000'
-      - '127.0.0.1:9001:9001'
+      - 127.0.0.1:9000:9000
+      - 127.0.0.1:9001:9001
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:9000/minio/health/live
       interval: 10s
       timeout: 5s
       retries: 3
     labels:
-      - 'com.openwa.service=storage'
-      - 'com.openwa.builtin=true'
+      - com.openwa.service=storage
+      - com.openwa.builtin=true
+    networks:
+      - default
 
 volumes:
   openwa-data:
@@ -189,3 +185,5 @@ volumes:
 networks:
   default:
     name: openwa-network
+  dokploy-network:
+    external: true
