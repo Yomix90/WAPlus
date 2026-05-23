@@ -65,16 +65,14 @@ export function Sessions() {
   const fetchQR = useCallback(async (sessionId: string) => {
     try {
       const qr = await sessionApi.getQR(sessionId);
-      setQrData({ sessionId, sessionName: currentSessionName.current, qrCode: qr.qrCode });
+      setQrData(prev => prev && prev.sessionId === sessionId ? { ...prev, qrCode: qr.qrCode } : prev);
       if (qr.status === 'ready') {
         setQrData(null);
         currentSessionName.current = '';
         fetchSessions();
       }
-    } catch {
-      setQrData(null);
-      currentSessionName.current = '';
-      fetchSessions();
+    } catch (err) {
+      console.log('QR not ready yet (polling):', err);
     }
   }, []);
 
@@ -150,12 +148,13 @@ export function Sessions() {
   const handleShowQR = async (id: string) => {
     const session = sessions.find(s => s.id === id);
     const sessionName = session?.name || '';
+    setError(null);
+    setQrData({ sessionId: id, sessionName, qrCode: '' });
     try {
       const qr = await sessionApi.getQR(id);
       setQrData({ sessionId: id, sessionName, qrCode: qr.qrCode });
     } catch (err) {
-      console.error('Failed to get QR:', err);
-      setError(t('sessions.qr.unavailable'));
+      console.log('Failed to get initial QR, polling will catch it:', err);
     }
   };
 

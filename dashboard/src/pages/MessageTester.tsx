@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { 
   Send, CheckCircle, XCircle, Loader2, Play, Users, Check, FileText, 
   AlertCircle, Trash2, Pause, Upload, Sparkles, 
-  ChevronDown, ChevronUp, Clock, Info, ShieldAlert
+  ChevronDown, ChevronUp, Clock, Info, ShieldAlert, FileUp, Link
 } from 'lucide-react';
 import { messageApi } from '../services/api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -14,7 +14,7 @@ import {
   useSessionContactsQuery 
 } from '../hooks/queries';
 import { PageHeader } from '../components/PageHeader';
-import { type MessageBatchResponse } from '../services/api';
+import { type MessageBatchResponse, type SendMediaPayload } from '../services/api';
 import './MessageTester.css';
 
 interface ApiResponse {
@@ -70,7 +70,15 @@ export function MessageTester() {
   const [selectedGroup, setSelectedGroup] = useState('');
   const [messageType, setMessageType] = useState<typeof messageTypes[number]>('text');
   const [content, setContent] = useState('');
+  
+  // Local File Upload vs Media URL
+  const [mediaSource, setMediaSource] = useState<'url' | 'upload'>('upload');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [mediaBase64, setMediaBase64] = useState('');
+  const [mediaMimetype, setMediaMimetype] = useState('');
+  const [mediaFilename, setMediaFilename] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
+  
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState<ApiResponse | null>(null);
 
@@ -103,8 +111,14 @@ export function MessageTester() {
   // Bulk Composer States
   const [bulkMediaType, setBulkMediaType] = useState<typeof messageTypes[number]>('text');
   const [bulkMessageContent, setBulkMessageContent] = useState('');
-  const [bulkMediaUrl, setBulkMediaUrl] = useState('');
+  
+  // Bulk Local File Upload vs Media URL
+  const [bulkMediaSource, setBulkMediaSource] = useState<'url' | 'upload'>('upload');
+  const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
+  const [bulkMediaBase64, setBulkMediaBase64] = useState('');
+  const [bulkMediaMimetype, setBulkMediaMimetype] = useState('');
   const [bulkMediaFilename, setBulkMediaFilename] = useState('');
+  const [bulkMediaUrl, setBulkMediaUrl] = useState('');
   
   // Options
   const [bulkDelay, setBulkDelay] = useState(3000);
@@ -174,6 +188,44 @@ export function MessageTester() {
     pollingTimerRef.current = setInterval(poll, 2000) as unknown as number;
   };
 
+  // Convert File to Base64 (Single Mode)
+  const handleSingleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadFile(file);
+    setMediaFilename(file.name);
+    setMediaMimetype(file.type);
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        const base64 = dataUrl.split(',')[1];
+        setMediaBase64(base64);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Convert File to Base64 (Bulk Mode)
+  const handleBulkFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkUploadFile(file);
+    setBulkMediaFilename(file.name);
+    setBulkMediaMimetype(file.type);
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        const base64 = dataUrl.split(',')[1];
+        setBulkMediaBase64(base64);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Handle Single Send
   const handleSingleSend = async () => {
     const targetId = recipientType === 'group' ? selectedGroup : recipient;
@@ -187,14 +239,39 @@ export function MessageTester() {
       let result;
       if (messageType === 'text') {
         result = await messageApi.sendText(session, chatId, content);
-      } else if (messageType === 'image') {
-        result = await messageApi.sendImage(session, chatId, mediaUrl, content);
-      } else if (messageType === 'video') {
-        result = await messageApi.sendVideo(session, chatId, mediaUrl, content);
-      } else if (messageType === 'audio') {
-        result = await messageApi.sendAudio(session, chatId, mediaUrl);
       } else {
-        result = await messageApi.sendDocument(session, chatId, mediaUrl, content);
+        const payload: SendMediaPayload = {
+          chatId,
+          caption: messageType !== 'audio' ? content : undefined,
+        };
+
+        if (mediaSource === 'upload') {
+          if (!mediaBase64) {
+            throw new Error(t('messageTester.errorNoFile', 'Veuillez sélectionner un fichier à envoyer.'));
+          }
+          payload.base64 = mediaBase64;
+          payload.mimetype = mediaMimetype || 'application/octet-stream';
+          payload.filename = mediaFilename;
+        } else {
+          if (!mediaUrl) {
+            throw new Error(t('messageTester.errorNoUrl', 'Veuillez saisir une URL de média.'));
+          }
+          payload.url = mediaUrl;
+          if (messageType === 'document') {
+            payload.filename = content || 'document.pdf';
+            payload.caption = undefined;
+          }
+        }
+
+        if (messageType === 'image') {
+          result = await messageApi.sendImage(session, payload);
+        } else if (messageType === 'video') {
+          result = await messageApi.sendVideo(session, payload);
+        } else if (messageType === 'audio') {
+          result = await messageApi.sendAudio(session, payload);
+        } else {
+          result = await messageApi.sendDocument(session, payload);
+        }
       }
 
       setResponse({
@@ -337,33 +414,45 @@ export function MessageTester() {
     }
   };
 
-  // Help compute appropriate message content structure based on type
+  // Help compute appropriate message content structure based on type and source
   const getBulkMessageContentPayload = () => {
-    switch (bulkMediaType) {
-      case 'text':
-        return { text: bulkMessageContent };
-      case 'image':
-        return { 
-          image: { url: bulkMediaUrl, mimetype: 'image/jpeg' }, 
-          caption: bulkMessageContent 
-        };
-      case 'video':
-        return { 
-          video: { url: bulkMediaUrl, mimetype: 'video/mp4' }, 
-          caption: bulkMessageContent 
-        };
-      case 'audio':
-        return { 
-          audio: { url: bulkMediaUrl, mimetype: 'audio/mpeg' } 
-        };
-      case 'document':
-        return { 
-          document: { url: bulkMediaUrl, mimetype: 'application/octet-stream', filename: bulkMediaFilename }, 
-          caption: bulkMessageContent 
-        };
-      default:
-        return { text: bulkMessageContent };
+    if (bulkMediaType === 'text') {
+      return { text: bulkMessageContent };
     }
+
+    const payload: any = {
+      caption: bulkMediaType !== 'audio' ? bulkMessageContent : undefined,
+    };
+
+    if (bulkMediaSource === 'upload') {
+      if (!bulkMediaBase64) {
+        throw new Error('Veuillez sélectionner un fichier média local pour la campagne.');
+      }
+      
+      payload[bulkMediaType] = {
+        base64: bulkMediaBase64,
+        mimetype: bulkMediaMimetype || 'application/octet-stream',
+        filename: bulkMediaType === 'document' ? bulkMediaFilename : undefined
+      };
+    } else {
+      if (!bulkMediaUrl) {
+        throw new Error('Veuillez renseigner l\'URL du fichier média.');
+      }
+      
+      // Auto-detect mimetype fallback
+      let mimetype = 'application/octet-stream';
+      if (bulkMediaType === 'image') mimetype = 'image/jpeg';
+      else if (bulkMediaType === 'video') mimetype = 'video/mp4';
+      else if (bulkMediaType === 'audio') mimetype = 'audio/mpeg';
+
+      payload[bulkMediaType] = {
+        url: bulkMediaUrl,
+        mimetype,
+        filename: bulkMediaType === 'document' ? bulkMediaFilename || 'document.pdf' : undefined
+      };
+    }
+
+    return payload;
   };
 
   // Cancel Running Campaign
@@ -387,15 +476,16 @@ export function MessageTester() {
     return item.status === logsFilter;
   }) || [];
 
-  // Filter Contacts List
-  const filteredContacts = sessionContacts.filter(c => {
+  // Filter Contacts List - Safe & Crashproof
+  const filteredContacts = Array.isArray(sessionContacts) ? sessionContacts.filter(c => {
+    if (!c) return false;
     const search = contactsSearch.toLowerCase();
-    return (
-      (c.name || '').toLowerCase().includes(search) ||
-      (c.pushName || '').toLowerCase().includes(search) ||
-      c.number.includes(search)
-    );
-  });
+    const name = (c.name || '').toLowerCase();
+    const pushName = (c.pushName || '').toLowerCase();
+    const number = (c.number || '').toLowerCase();
+    const id = (c.id || '').toLowerCase();
+    return name.includes(search) || pushName.includes(search) || number.includes(search) || id.includes(search);
+  }) : [];
 
   const toggleContactSelection = (contactId: string) => {
     setBulkSelectedContacts(prev =>
@@ -535,6 +625,66 @@ export function MessageTester() {
                 </div>
               </div>
 
+              {/* Media input options for file uploads */}
+              {messageType !== 'text' && (
+                <div className="form-group fade-in">
+                  <label>Source du Média</label>
+                  <div className="toggle-group" style={{ marginBottom: '1rem' }}>
+                    <button
+                      type="button"
+                      className={mediaSource === 'upload' ? 'active' : ''}
+                      onClick={() => setMediaSource('upload')}
+                    >
+                      <FileUp size={14} style={{ marginRight: '4px' }} />
+                      Fichier local (Upload)
+                    </button>
+                    <button
+                      type="button"
+                      className={mediaSource === 'url' ? 'active' : ''}
+                      onClick={() => setMediaSource('url')}
+                    >
+                      <Link size={14} style={{ marginRight: '4px' }} />
+                      Lien URL
+                    </button>
+                  </div>
+
+                  {mediaSource === 'upload' ? (
+                    <div className="file-uploader-box fade-in">
+                      <input 
+                        type="file" 
+                        onChange={handleSingleFileChange}
+                        id="single-media-picker"
+                        style={{ display: 'none' }}
+                        accept={
+                          messageType === 'image' ? 'image/*' : 
+                          messageType === 'video' ? 'video/*' : 
+                          messageType === 'audio' ? 'audio/*' : '*/*'
+                        }
+                      />
+                      <label htmlFor="single-media-picker" className="file-upload-label-btn">
+                        <Upload size={16} />
+                        Choisir un fichier...
+                      </label>
+                      {uploadFile && (
+                        <div className="file-selected-name">
+                          <CheckCircle size={14} color="#10B981" />
+                          <span>{uploadFile.name} ({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="fade-in">
+                      <input
+                        type="text"
+                        value={mediaUrl}
+                        onChange={e => setMediaUrl(e.target.value)}
+                        placeholder="https://example.com/file.jpg"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {messageType === 'text' ? (
                 <div className="form-group">
                   <label>{t('messageTester.messageContent')}</label>
@@ -547,15 +697,6 @@ export function MessageTester() {
                 </div>
               ) : (
                 <>
-                  <div className="form-group">
-                    <label>{t('messageTester.mediaUrl')}</label>
-                    <input
-                      type="text"
-                      value={mediaUrl}
-                      onChange={e => setMediaUrl(e.target.value)}
-                      placeholder="https://example.com/file.jpg"
-                    />
-                  </div>
                   {messageType !== 'audio' && (
                     <div className="form-group">
                       <label>
@@ -575,7 +716,14 @@ export function MessageTester() {
               <button
                 className="send-btn"
                 onClick={handleSingleSend}
-                disabled={!canWrite || isLoading || !session || (recipientType === 'group' ? !selectedGroup : !recipient)}
+                disabled={
+                  !canWrite || 
+                  isLoading || 
+                  !session || 
+                  (recipientType === 'group' ? !selectedGroup : !recipient) ||
+                  (messageType !== 'text' && mediaSource === 'upload' && !mediaBase64) ||
+                  (messageType !== 'text' && mediaSource === 'url' && !mediaUrl)
+                }
               >
                 {isLoading ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
                 {isLoading ? t('messageTester.sending') : canWrite ? t('messageTester.send') : t('messageTester.viewOnly')}
@@ -788,15 +936,63 @@ export function MessageTester() {
                 </div>
               </div>
 
+              {/* Media options for file uploads in Bulk Campaign */}
               {bulkMediaType !== 'text' && (
                 <div className="form-group fade-in">
-                  <label>URL du fichier média</label>
-                  <input
-                    type="text"
-                    value={bulkMediaUrl}
-                    onChange={e => setBulkMediaUrl(e.target.value)}
-                    placeholder="https://example.com/document.pdf ou .jpg, .mp4..."
-                  />
+                  <label>Source du Média de Campagne</label>
+                  <div className="toggle-group" style={{ marginBottom: '1rem' }}>
+                    <button
+                      type="button"
+                      className={bulkMediaSource === 'upload' ? 'active' : ''}
+                      onClick={() => setBulkMediaSource('upload')}
+                    >
+                      <FileUp size={14} style={{ marginRight: '4px' }} />
+                      Fichier local (Upload)
+                    </button>
+                    <button
+                      type="button"
+                      className={bulkMediaSource === 'url' ? 'active' : ''}
+                      onClick={() => setBulkMediaSource('url')}
+                    >
+                      <Link size={14} style={{ marginRight: '4px' }} />
+                      Lien URL
+                    </button>
+                  </div>
+
+                  {bulkMediaSource === 'upload' ? (
+                    <div className="file-uploader-box fade-in">
+                      <input 
+                        type="file" 
+                        onChange={handleBulkFileChange}
+                        id="bulk-media-picker"
+                        style={{ display: 'none' }}
+                        accept={
+                          bulkMediaType === 'image' ? 'image/*' : 
+                          bulkMediaType === 'video' ? 'video/*' : 
+                          bulkMediaType === 'audio' ? 'audio/*' : '*/*'
+                        }
+                      />
+                      <label htmlFor="bulk-media-picker" className="file-upload-label-btn">
+                        <Upload size={16} />
+                        Choisir un fichier de campagne...
+                      </label>
+                      {bulkUploadFile && (
+                        <div className="file-selected-name">
+                          <CheckCircle size={14} color="#10B981" />
+                          <span>{bulkUploadFile.name} ({(bulkUploadFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="fade-in">
+                      <input
+                        type="text"
+                        value={bulkMediaUrl}
+                        onChange={e => setBulkMediaUrl(e.target.value)}
+                        placeholder="https://example.com/document.pdf ou .jpg, .mp4..."
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -897,7 +1093,9 @@ export function MessageTester() {
                   !session ||
                   (bulkTargetType === 'manual' && !bulkManualNumbers) ||
                   (bulkTargetType === 'contacts' && bulkSelectedContacts.length === 0) ||
-                  (bulkTargetType === 'csv' && csvData.length === 0)
+                  (bulkTargetType === 'csv' && csvData.length === 0) ||
+                  (bulkMediaType !== 'text' && bulkMediaSource === 'upload' && !bulkMediaBase64) ||
+                  (bulkMediaType !== 'text' && bulkMediaSource === 'url' && !bulkMediaUrl)
                 }
               >
                 {isLaunchingCampaign ? <Loader2 className="animate-spin" size={18} /> : <Play size={18} fill="currentColor" />}
