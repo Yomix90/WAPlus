@@ -14,6 +14,7 @@ export interface Session {
   phone?: string;
   pushName?: string;
   lastActive?: string;
+  config?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
 }
@@ -199,7 +200,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const apiKey = sessionStorage.getItem('openwa_api_key');
 
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(apiKey ? { 'X-API-Key': apiKey } : {}),
     ...options.headers,
   };
@@ -237,6 +238,40 @@ export const sessionApi = {
   getStats: () => request<SessionStats>('/sessions/stats/overview'),
   getGroups: (id: string) => request<{ id: string; name: string }[]>(`/sessions/${id}/groups`),
   getContacts: (id: string) => request<Contact[]>(`/sessions/${id}/contacts`),
+  update: (id: string, data: { proxyUrl?: string; proxyType?: string; config?: Record<string, any> }) =>
+    request<Session>(`/sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  import: (name: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    return request<Session>('/sessions/import', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+  export: async (id: string, name: string) => {
+    const apiKey = sessionStorage.getItem('openwa_api_key') || '';
+    const response = await fetch(`/api/sessions/${id}/export`, {
+      headers: {
+        'X-API-Key': apiKey,
+      },
+    });
+    if (!response.ok) {
+      throw new Error('Failed to export session');
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `session-${name}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };
 
 // =============================================================================
@@ -359,6 +394,16 @@ export const messageApi = {
     }>(`/sessions/${sessionId}/messages/batch/${batchId}/cancel`, {
       method: 'POST',
     }),
+  getChats: (sessionId: string) =>
+    request<any[]>(`/sessions/${sessionId}/messages/chats`),
+  getMessages: (sessionId: string, chatId?: string, limit = 50, offset = 0) => {
+    const query = new URLSearchParams();
+    if (chatId) query.set('chatId', chatId);
+    query.set('limit', String(limit));
+    query.set('offset', String(offset));
+    const queryStr = query.toString();
+    return request<{ messages: any[]; total: number }>(`/sessions/${sessionId}/messages${queryStr ? `?${queryStr}` : ''}`);
+  },
 };
 
 // =============================================================================

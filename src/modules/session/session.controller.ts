@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Delete, Param, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Body, HttpCode, HttpStatus, Res, Patch, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { SessionService } from './session.service';
 import { CreateSessionDto, SessionResponseDto, QRCodeResponseDto } from './dto';
@@ -164,6 +166,54 @@ export class SessionController {
   @ApiResponse({ status: 404, description: 'Session not found' })
   async getGroups(@Param('id') id: string): Promise<{ id: string; name: string }[]> {
     return this.sessionService.getGroups(id);
+  }
+
+  @Get(':id/export')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Export WhatsApp session credentials as a ZIP file' })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  async exportSession(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const session = await this.sessionService.findOne(id);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename=session-${session.name}.zip`);
+    await this.sessionService.exportSession(id, res);
+  }
+
+  @Post('import')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Import WhatsApp session credentials from a ZIP file' })
+  async importSession(
+    @UploadedFile() file: any,
+    @Body('name') name: string,
+  ): Promise<SessionResponseDto> {
+    if (!file) {
+      throw new BadRequestException('No session ZIP file uploaded');
+    }
+    if (!name || !name.trim()) {
+      throw new BadRequestException('Session name is required');
+    }
+    const session = await this.sessionService.importSession(name.trim(), file.buffer);
+    await this.auditService.logInfo(AuditAction.SESSION_CREATED, {
+      sessionId: session.id,
+      sessionName: session.name,
+    });
+    return this.transformSession(session);
+  }
+
+  @Patch(':id')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Update WhatsApp session settings and configuration' })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  async update(
+    @Param('id') id: string,
+    @Body() dto: { proxyUrl?: string; proxyType?: string; config?: Record<string, any> },
+  ): Promise<SessionResponseDto> {
+    const session = await this.sessionService.update(id, dto);
+    return this.transformSession(session);
   }
 
   @Get('stats/overview')

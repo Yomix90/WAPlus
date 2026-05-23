@@ -8,6 +8,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as archiver from 'archiver';
 import { Session, SessionStatus } from './entities/session.entity';
 import { CreateSessionDto } from './dto';
 import { EngineFactory } from '../../engine/engine.factory';
@@ -310,6 +313,9 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
             void this.webhookService.dispatch(id, 'message.received', finalMessage as Record<string, unknown>);
             // Emit real-time event to WebSocket clients
             this.eventsGateway.emitMessage(id, finalMessage as Record<string, unknown>);
+
+            // Trigger Gemini AI Auto-Reply if enabled
+            void this.handleGeminiAutoReply(id, finalMessage);
           });
       },
       onDisconnected: (reason: string): void => {
@@ -529,6 +535,173 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
    */
   getActiveCount(): number {
     return this.engines.size;
+  }
+
+  /**
+   * Update a session's settings (proxy and custom configurations)
+   */
+  async update(id: string, updateDto: { proxyUrl?: string; proxyType?: string; config?: Record<string, any> }): Promise<Session> {
+    const session = await this.findOne(id);
+
+    if (updateDto.proxyUrl !== undefined) {
+      session.proxyUrl = updateDto.proxyUrl || null;
+    }
+    if (updateDto.proxyType !== undefined) {
+      session.proxyType = (updateDto.proxyType as any) || null;
+    }
+    if (updateDto.config !== undefined) {
+      session.config = {
+        ...(session.config as Record<string, any> || {}),
+        ...updateDto.config,
+      };
+    }
+
+    const saved = await this.sessionRepository.save(session);
+    this.logger.log(`Session settings updated: ${saved.name}`, { sessionId: id });
+    return saved;
+  }
+
+  /**
+   * Export session credentials as a ZIP stream
+   */
+  async exportSession(id: string, writeStream: NodeJS.WritableStream): Promise<void> {
+    const session = await this.findOne(id);
+    const sessionDir = path.resolve('./data/sessions', `session-${session.name}`);
+    if (!fs.existsSync(sessionDir)) {
+      throw new NotFoundException('Session authentication data not found on disk. Has it been authenticated at least once?');
+    }
+
+    const archive = archiver.default('zip', { zlib: { level: 9 } });
+    archive.pipe(writeStream);
+    // Zips contents of directory, not the directory itself
+    archive.directory(sessionDir, false);
+    await archive.finalize();
+  }
+
+  /**
+   * Import a session using a ZIP archive buffer
+   */
+  async importSession(name: string, fileBuffer: Buffer): Promise<Session> {
+    // 1. Check if session with name already exists
+    const existing = await this.sessionRepository.findOne({
+      where: { name },
+    });
+
+    if (existing) {
+      throw new ConflictException(`Session with name '${name}' already exists`);
+    }
+
+    // 2. Unzip using adm-zip
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip(fileBuffer);
+    
+    const sessionDir = path.resolve('./data/sessions', `session-${name}`);
+    if (!fs.existsSync(sessionDir)) {
+      fs.mkdirSync(sessionDir, { recursive: true });
+    }
+
+    try {
+      zip.extractAllTo(sessionDir, true);
+    } catch (err) {
+      this.logger.error(`Failed to extract session ZIP for ${name}`, String(err));
+      throw new BadRequestException('Invalid session ZIP archive. Could not extract contents.');
+    }
+
+    // 3. Create session record in database
+    const session = this.sessionRepository.create({
+      name,
+      config: {},
+      status: SessionStatus.DISCONNECTED,
+    });
+
+    const saved = await this.dataSource.transaction(async manager => {
+      return await manager.save(session);
+    });
+
+    this.logger.log(`Session imported: ${saved.name}`, {
+      sessionId: saved.id,
+      action: 'import',
+    });
+
+    return saved;
+  }
+
+  /**
+   * Intercept incoming text messages and reply using Gemini 1.5 Flash if enabled
+   */
+  private async handleGeminiAutoReply(sessionId: string, message: any): Promise<void> {
+    try {
+      const session = await this.findOne(sessionId);
+      const config = session.config as any;
+      if (!config || !config.geminiEnabled || !config.geminiApiKey) {
+        return;
+      }
+
+      // Only reply to incoming text messages
+      if (message.type !== 'text' || !message.body) {
+        return;
+      }
+
+      // Avoid replying to outgoing messages
+      if (message.fromMe) {
+        return;
+      }
+
+      // Avoid spamming groups unless explicitly allowed
+      const isGroup = message.from && message.from.endsWith('@g.us');
+      if (isGroup && !config.geminiGroupsEnabled) {
+        return;
+      }
+
+      const apiKey = config.geminiApiKey;
+      const systemInstruction = config.geminiPrompt || 'You are a helpful WhatsApp AI assistant.';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+      this.logger.log(`Calling Gemini AI auto-reply for message from ${message.from} on session ${session.name}`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: message.body }],
+            },
+          ],
+          systemInstruction: {
+            parts: [{ text: systemInstruction }],
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.error(`Gemini API returned error ${response.status}: ${errorText}`);
+        return;
+      }
+
+      const responseData: any = await response.json();
+      const replyText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (replyText && replyText.trim()) {
+        const engine = this.engines.get(sessionId);
+        if (engine) {
+          // Delay to simulate human thinking/typing (2 seconds)
+          setTimeout(async () => {
+            try {
+              await engine.sendTextMessage(message.from, replyText.trim());
+              this.logger.log(`Auto-reply sent successfully to ${message.from}`);
+            } catch (err) {
+              this.logger.error(`Failed to send auto-reply to ${message.from}`, String(err));
+            }
+          }, 2000);
+        }
+      }
+    } catch (err) {
+      this.logger.error('Error in handleGeminiAutoReply', String(err));
+    }
   }
 
   /**

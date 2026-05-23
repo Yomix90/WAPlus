@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Languages,
+  MessageSquare,
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { type UserRole } from '../hooks/useRole';
@@ -33,6 +34,7 @@ interface LayoutProps {
 const allNavItems = [
   { to: '/', icon: LayoutDashboard, key: 'dashboard' as const, adminOnly: false },
   { to: '/sessions', icon: Smartphone, key: 'sessions' as const, adminOnly: false },
+  { to: '/chats', icon: MessageSquare, key: 'chats' as const, adminOnly: false },
   { to: '/webhooks', icon: Webhook, key: 'webhooks' as const, adminOnly: false },
   { to: '/api-keys', icon: Key, key: 'apiKeys' as const, adminOnly: true },
   { to: '/message-tester', icon: Send, key: 'messageTester' as const, adminOnly: false },
@@ -133,7 +135,7 @@ export function Layout({ onLogout, userRole }: LayoutProps) {
 
         <nav className="sidebar-nav">
           {navItems.map(({ to, icon: Icon, key }) => {
-            const label = t(`nav.${key}`);
+            const label = key === 'chats' ? 'Chats & Historique' : t(`nav.${key}`);
             return (
               <NavLink
                 key={to}

@@ -104,6 +104,30 @@ export function useStopSessionMutation() {
   });
 }
 
+export function useUpdateSessionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { id: string; data: { proxyUrl?: string; proxyType?: string; config?: Record<string, any> } }) =>
+      sessionApi.update(params.id, params.data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessionStats });
+    },
+  });
+}
+
+export function useImportSessionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { name: string; file: File }) =>
+      sessionApi.import(params.name, params.file),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessionStats });
+    },
+  });
+}
+
 // ── Webhook Queries ───────────────────────────────────────────────────
 
 export function useWebhooksQuery() {

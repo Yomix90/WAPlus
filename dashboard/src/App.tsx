@@ -17,6 +17,7 @@ const ApiKeys = lazy(() => import('./pages/ApiKeys').then(m => ({ default: m.Api
 const MessageTester = lazy(() => import('./pages/MessageTester').then(m => ({ default: m.MessageTester })));
 const Infrastructure = lazy(() => import('./pages/Infrastructure').then(m => ({ default: m.Infrastructure })));
 const Plugins = lazy(() => import('./pages/Plugins'));
+const ChatHistory = lazy(() => import('./pages/ChatHistory').then(m => ({ default: m.ChatHistory })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -101,6 +102,7 @@ function AppContent() {
           <Route path="/" element={<Layout onLogout={handleLogout} userRole={role} />}>
             <Route index element={<Dashboard />} />
             <Route path="sessions" element={<Sessions />} />
+            <Route path="chats" element={<ChatHistory />} />
             <Route path="webhooks" element={<Webhooks />} />
             {role === 'admin' && <Route path="api-keys" element={<ApiKeys />} />}
             <Route path="logs" element={<Logs />} />

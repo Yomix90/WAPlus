@@ -38,6 +38,17 @@ export class MessageController {
     });
   }
 
+  @Get('chats')
+  @ApiOperation({ summary: 'Get active chats/conversations list for a session' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of active chats',
+  })
+  async getChats(@Param('sessionId') sessionId: string) {
+    return this.messageService.getChats(sessionId);
+  }
+
   @Post('send-text')
   @RequireRole(ApiKeyRole.OPERATOR)
   @ApiOperation({ summary: 'Send a text message' })

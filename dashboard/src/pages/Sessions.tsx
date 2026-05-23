@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
-import { Plus, QrCode, RefreshCw, Trash2, Eye, Loader2, Play, Square, X, Search, Filter } from 'lucide-react';
+import { Plus, QrCode, RefreshCw, Trash2, Eye, Loader2, Play, Square, X, Search, Filter, Cpu, Download, Upload } from 'lucide-react';
 import { sessionApi, type Session } from '../services/api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useToast } from '../components/Toast';
@@ -26,6 +26,21 @@ export function Sessions() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // Import Session State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importSessionName, setImportSessionName] = useState('');
+  const [importing, setImporting] = useState(false);
+
+  // Gemini AI Settings State
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiSession, setAiSession] = useState<Session | null>(null);
+  const [geminiEnabled, setGeminiEnabled] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [geminiPrompt, setGeminiPrompt] = useState('');
+  const [geminiGroupsEnabled, setGeminiGroupsEnabled] = useState(false);
+  const [savingAi, setSavingAi] = useState(false);
+
   useWebSocket({
     onSessionStatus: useCallback(
       (event: { sessionId: string; status: string }) => {
@@ -34,6 +49,9 @@ export function Sessions() {
         );
         if (event.status === 'ready') {
           toast.success(t('sessions.toasts.readyTitle'), t('sessions.toasts.readyDesc'));
+          // Auto close QR Modal if open for this session
+          setQrData(prev => (prev && prev.sessionId === event.sessionId ? null : prev));
+          fetchSessions();
         } else if (event.status === 'disconnected') {
           toast.warning(t('sessions.toasts.disconnectedTitle'), t('sessions.toasts.disconnectedDesc'));
         }
@@ -97,6 +115,12 @@ export function Sessions() {
       setNewSessionName('');
       setShowCreateModal(false);
       toast.success(t('sessions.create.successTitle'), t('sessions.create.successDesc', { name: newSession.name }));
+
+      // Automatically launch Puppeteer and open the QR Modal
+      toast.info("Démarrage de la session...", "Lancement de l'instance WhatsApp en arrière-plan...");
+      await sessionApi.start(newSession.id);
+      setSessions(prev => prev.map(s => s.id === newSession.id ? { ...s, status: 'connecting' } : s));
+      handleShowQR(newSession.id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : t('sessions.create.errorDefault');
       setError(msg);
@@ -169,6 +193,67 @@ export function Sessions() {
     }
   };
 
+  const handleImport = async () => {
+    if (!importSessionName.trim() || !importFile) return;
+    try {
+      setImporting(true);
+      const newSession = await sessionApi.import(importSessionName.trim(), importFile);
+      setSessions(prev => [...prev, newSession]);
+      setImportSessionName('');
+      setImportFile(null);
+      setShowImportModal(false);
+      toast.success("Importation réussie", `La session "${newSession.name}" a été importée avec succès.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Échec de l'importation de l'archive ZIP";
+      toast.error("Erreur d'importation", msg);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleOpenAiSettings = (session: Session) => {
+    setAiSession(session);
+    const config = (session as any).config || {};
+    setGeminiEnabled(!!config.geminiEnabled);
+    setGeminiApiKey(config.geminiApiKey || '');
+    setGeminiPrompt(config.geminiPrompt || "You are a helpful WhatsApp AI assistant.");
+    setGeminiGroupsEnabled(!!config.geminiGroupsEnabled);
+    setShowAiModal(true);
+  };
+
+  const handleSaveAiSettings = async () => {
+    if (!aiSession) return;
+    try {
+      setSavingAi(true);
+      const updatedSession = await sessionApi.update(aiSession.id, {
+        config: {
+          geminiEnabled,
+          geminiApiKey,
+          geminiPrompt,
+          geminiGroupsEnabled,
+        }
+      });
+      setSessions(prev => prev.map(s => s.id === aiSession.id ? { ...s, config: updatedSession.config } : s));
+      setShowAiModal(false);
+      toast.success("Paramètres IA enregistrés", `L'auto-répondeur Gemini de "${aiSession.name}" a été configuré.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur de sauvegarde";
+      toast.error("Erreur", msg);
+    } finally {
+      setSavingAi(false);
+    }
+  };
+
+  const handleExportSession = async (session: Session) => {
+    try {
+      toast.info("Exportation en cours...", "Compression des jetons de connexion WhatsApp...");
+      await sessionApi.export(session.id, session.name);
+      toast.success("Session exportée", `L'archive ZIP pour "${session.name}" a été téléchargée.`);
+    } catch (err) {
+      toast.error("Échec de l'exportation", err instanceof Error ? err.message : "Une erreur est survenue.");
+    }
+  };
+
   const formatLastActive = (date?: string) => {
     if (!date) return t('common.never');
     const diff = Date.now() - new Date(date).getTime();
@@ -209,10 +294,16 @@ export function Sessions() {
         subtitle={t('sessions.subtitle')}
         actions={
           canWrite && (
-            <button className="btn-primary" onClick={() => setShowCreateModal(true)}>
-              <Plus size={18} />
-              {t('sessions.newSession')}
-            </button>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button className="btn-secondary" onClick={() => setShowImportModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <Upload size={18} />
+                Importer Session
+              </button>
+              <button className="btn-primary" onClick={() => setShowCreateModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <Plus size={18} />
+                {t('sessions.newSession')}
+              </button>
+            </div>
           )
         }
       />
@@ -494,6 +585,18 @@ export function Sessions() {
                   </button>
                 ) : null}
                 {canWrite && (
+                  <button className="btn-action" onClick={() => handleOpenAiSettings(session)}>
+                    <Cpu size={16} />
+                    Auto-IA
+                  </button>
+                )}
+                {canWrite && (
+                  <button className="btn-action" onClick={() => handleExportSession(session)}>
+                    <Download size={16} />
+                    Exporter
+                  </button>
+                )}
+                {canWrite && (
                   <button className="btn-action danger" onClick={() => setDeleteConfirmId(session.id)}>
                     <Trash2 size={16} />
                     {t('sessions.actions.delete')}
@@ -504,6 +607,127 @@ export function Sessions() {
           ))
         )}
       </div>
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Importer une session WhatsApp (.ZIP)</h2>
+              <button className="btn-icon" onClick={() => setShowImportModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 500 }}>Nom de la session</label>
+                <input
+                  type="text"
+                  placeholder="ex: session-professionnelle"
+                  value={importSessionName}
+                  onChange={e => {
+                    const value = e.target.value.toLowerCase().replace(/\s+/g, '-');
+                    setImportSessionName(value);
+                  }}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 500 }}>Archive ZIP de session</label>
+                <input
+                  type="file"
+                  accept=".zip"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) setImportFile(file);
+                  }}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc' }}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowImportModal(false)}>
+                {t('common.cancel')}
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleImport}
+                disabled={importing || !importSessionName.trim() || !importFile}
+              >
+                {importing ? <Loader2 className="animate-spin" size={16} /> : 'Importer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAiModal && aiSession && (
+        <div className="modal-overlay" onClick={() => setShowAiModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px', width: '90%' }}>
+            <div className="modal-header">
+              <h2>Répondeur Automatique IA Gemini ({aiSession.name})</h2>
+              <button className="btn-icon" onClick={() => setShowAiModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 500 }}>
+                <input
+                  type="checkbox"
+                  checked={geminiEnabled}
+                  onChange={e => setGeminiEnabled(e.target.checked)}
+                />
+                Activer l'auto-répondeur IA Gemini 1.5 Flash
+              </label>
+
+              {geminiEnabled && (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    <label style={{ fontWeight: 500 }}>Clé API Gemini</label>
+                    <input
+                      type="password"
+                      placeholder="Saisissez votre clé API Gemini"
+                      value={geminiApiKey}
+                      onChange={e => setGeminiApiKey(e.target.value)}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    <label style={{ fontWeight: 500 }}>Prompt / Directives Systèmes</label>
+                    <textarea
+                      placeholder="Consignes données à l'IA (ex: Tu es un assistant chaleureux pour WAPlus...)"
+                      value={geminiPrompt}
+                      onChange={e => setGeminiPrompt(e.target.value)}
+                      rows={5}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', resize: 'vertical' }}
+                    />
+                  </div>
+
+                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={geminiGroupsEnabled}
+                      onChange={e => setGeminiGroupsEnabled(e.target.checked)}
+                    />
+                    Répondre automatiquement dans les Groupes
+                  </label>
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowAiModal(false)}>
+                {t('common.cancel')}
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleSaveAiSettings}
+                disabled={savingAi || (geminiEnabled && !geminiApiKey.trim())}
+              >
+                {savingAi ? <Loader2 className="animate-spin" size={16} /> : 'Sauvegarder'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

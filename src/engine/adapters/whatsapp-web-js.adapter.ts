@@ -360,6 +360,18 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     return numberId !== null;
   }
 
+  async getChats(): Promise<any[]> {
+    this.ensureReady();
+    const chats = await this.client!.getChats();
+    return chats.map(c => ({
+      id: c.id._serialized,
+      name: c.name || c.id.user,
+      unreadCount: c.unreadCount || 0,
+      timestamp: c.timestamp || 0,
+      isGroup: c.isGroup,
+    }));
+  }
+
   async getGroups(): Promise<Group[]> {
     this.ensureReady();
     const chats = await this.client!.getChats();

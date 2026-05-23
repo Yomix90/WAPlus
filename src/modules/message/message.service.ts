@@ -229,6 +229,44 @@ export class MessageService {
     return { messages, total };
   }
 
+  /**
+   * Get active chats for a session (online from engine, offline fallback from database)
+   */
+  async getChats(sessionId: string): Promise<any[]> {
+    await this.sessionService.findOne(sessionId); // Verify session exists
+
+    // 1. Try online engine chats
+    if (this.sessionService.isActive(sessionId)) {
+      try {
+        const engine = this.getEngine(sessionId);
+        const chats = await engine.getChats();
+        return chats;
+      } catch (err) {
+        // Fallback to database if engine query fails
+      }
+    }
+
+    // 2. Offline fallback from database
+    const rawChats = await this.messageRepository
+      .createQueryBuilder('message')
+      .select('message.chatId', 'chatId')
+      .addSelect('MAX(message.createdAt)', 'lastMessageAt')
+      .addSelect('MAX(message.body)', 'lastMessageBody')
+      .where('message.sessionId = :sessionId', { sessionId })
+      .groupBy('message.chatId')
+      .orderBy('lastMessageAt', 'DESC')
+      .getRawMany();
+
+    return rawChats.map(c => ({
+      id: c.chatId,
+      name: c.chatId.split('@')[0], // Use number prefix as fallback name
+      unreadCount: 0,
+      timestamp: Math.round(new Date(c.lastMessageAt).getTime() / 1000),
+      isGroup: c.chatId.endsWith('@g.us'),
+      lastMessage: c.lastMessageBody,
+    }));
+  }
+
   // ========== Phase 3: Extended Messaging ==========
 
   async sendLocation(
