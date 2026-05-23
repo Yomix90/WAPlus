@@ -592,7 +592,7 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
    */
   async exportSession(id: string, writeStream: NodeJS.WritableStream): Promise<void> {
     const session = await this.findOne(id);
-    const sessionDir = path.resolve('./data/sessions', `session-${session.name}`);
+    const sessionDir = path.resolve('./data/sessions/.wwebjs_auth', `session-${session.name}`);
     if (!fs.existsSync(sessionDir)) {
       throw new NotFoundException('Session authentication data not found on disk. Has it been authenticated at least once?');
     }
@@ -621,7 +621,7 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     const AdmZip = require('adm-zip');
     const zip = new AdmZip(fileBuffer);
     
-    const sessionDir = path.resolve('./data/sessions', `session-${name}`);
+    const sessionDir = path.resolve('./data/sessions/.wwebjs_auth', `session-${name}`);
     if (!fs.existsSync(sessionDir)) {
       fs.mkdirSync(sessionDir, { recursive: true });
     }
