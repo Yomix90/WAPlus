@@ -59,8 +59,12 @@ export function MessageTester() {
   const sessions = allSessions.filter(s => s.status === 'ready');
   
   // Common states
-  const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single');
+  const [activeTab, setActiveTab] = useState<'single' | 'bulk' | 'history'>('single');
   const [session, setSession] = useState('');
+
+  // Campaign History States
+  const [campaignsList, setCampaignsList] = useState<MessageBatchResponse[]>([]);
+  const [isLoadingCampaigns, setIsLoadingCampaigns] = useState(false);
 
   // ===========================================================================
   // 1. Single Message Mode States
@@ -133,6 +137,26 @@ export function MessageTester() {
   const [logsFilter, setLogsFilter] = useState<'all' | 'sent' | 'failed' | 'pending'>('all');
   const [showLogsTable, setShowLogsTable] = useState(true);
   const pollingTimerRef = useRef<number | null>(null);
+
+  // Fetch Campaign History
+  const fetchCampaigns = async () => {
+    if (!session) return;
+    setIsLoadingCampaigns(true);
+    try {
+      const data = await messageApi.getBatches(session);
+      setCampaignsList(data);
+    } catch (err) {
+      console.error('Error fetching campaigns:', err);
+    } finally {
+      setIsLoadingCampaigns(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'history' && session) {
+      void fetchCampaigns();
+    }
+  }, [session, activeTab]);
 
   // Initialize Session
   useEffect(() => {
@@ -532,6 +556,16 @@ export function MessageTester() {
         >
           <Sparkles size={16} />
           <span>{t('messageTester.bulkCampaign', 'Campagne en Masse (Bulk)')}</span>
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('history');
+            void fetchCampaigns();
+          }}
+        >
+          <Clock size={16} />
+          <span>Historique des Campagnes</span>
         </button>
       </div>
 
@@ -1111,6 +1145,77 @@ export function MessageTester() {
             </>
           )}
 
+          {/* ==================== TAB: CAMPAIGN HISTORY ==================== */}
+          {activeTab === 'history' && (
+            <>
+              <div className="form-section-title" style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Clock size={16} />
+                  <span>Historique des Campagnes</span>
+                </div>
+                <button
+                  type="button"
+                  className="filter-chip active"
+                  style={{ marginLeft: 'auto', fontSize: '0.75rem', padding: '0.25rem 0.75rem' }}
+                  onClick={fetchCampaigns}
+                  disabled={isLoadingCampaigns}
+                >
+                  {isLoadingCampaigns ? <Loader2 className="animate-spin" size={12} /> : 'Rafraîchir'}
+                </button>
+              </div>
+
+              {isLoadingCampaigns ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                  <Loader2 className="animate-spin" size={32} />
+                </div>
+              ) : campaignsList.length === 0 ? (
+                <div className="response-empty" style={{ minHeight: '150px', marginTop: '1rem' }}>
+                  <p>Aucune campagne d'envoi groupé trouvée pour cette session.</p>
+                </div>
+              ) : (
+                <div className="campaigns-history-list">
+                  {campaignsList.map(camp => (
+                    <div key={camp.batchId} className={`campaign-history-item ${camp.status}`}>
+                      <div className="camp-header">
+                        <span className="camp-id mono">{camp.batchId}</span>
+                        <span className={`status-badge ${camp.status}`}>{camp.status}</span>
+                      </div>
+                      <div className="camp-body">
+                        <div className="camp-meta-row">
+                          <span>Créée le :</span>
+                          <span>{camp.startedAt ? new Date(camp.startedAt).toLocaleString() : 'En attente'}</span>
+                        </div>
+                        <div className="camp-meta-row">
+                          <span>Progression :</span>
+                          <span>{(camp.progress?.sent || 0) + (camp.progress?.failed || 0)} / {camp.progress?.total || 0}</span>
+                        </div>
+                        <div className="camp-meta-row">
+                          <span>Détails :</span>
+                          <span>
+                            <span className="sent-count">{camp.progress?.sent || 0} envoyés</span>
+                            {' / '}
+                            <span className="failed-count">{camp.progress?.failed || 0} échoués</span>
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="camp-view-btn"
+                        onClick={() => {
+                          setBulkBatchId(camp.batchId);
+                          startCampaignPolling(camp.batchId);
+                        }}
+                      >
+                        <Play size={12} fill="currentColor" />
+                        <span>Analyser et Suivre</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
         </div>
 
         {/* =====================================================================
@@ -1173,7 +1278,7 @@ export function MessageTester() {
           )}
 
           {/* ==================== TAB: BULK CAMPAIGN MONITOR ==================== */}
-          {activeTab === 'bulk' && (
+          {(activeTab === 'bulk' || activeTab === 'history') && (
             <>
               <h2>Progression de la Campagne</h2>
 
@@ -1370,7 +1475,11 @@ export function MessageTester() {
                 </div>
               ) : (
                 <div className="response-empty">
-                  <p>Configurez et lancez une campagne d'envoi en masse pour suivre la progression ici.</p>
+                  {activeTab === 'history' ? (
+                    <p>Sélectionnez une campagne dans l'historique à gauche pour afficher sa progression et ses logs.</p>
+                  ) : (
+                    <p>Configurez et lancez une campagne d'envoi en masse pour suivre la progression ici.</p>
+                  )}
                 </div>
               )}
             </>

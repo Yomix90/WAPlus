@@ -394,6 +394,8 @@ export const messageApi = {
     }>(`/sessions/${sessionId}/messages/batch/${batchId}/cancel`, {
       method: 'POST',
     }),
+  getBatches: (sessionId: string) =>
+    request<MessageBatchResponse[]>(`/sessions/${sessionId}/messages/batches`),
   getChats: (sessionId: string) =>
     request<any[]>(`/sessions/${sessionId}/messages/chats`),
   getMessages: (sessionId: string, chatId?: string, limit = 50, offset = 0) => {

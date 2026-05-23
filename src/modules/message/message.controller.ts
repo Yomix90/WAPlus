@@ -372,4 +372,15 @@ export class MessageController {
       progress: batch.progress,
     };
   }
+
+  @Get('batches')
+  @ApiOperation({ summary: 'Get all message batches (campaigns) for a session' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of all campaigns/batches',
+  })
+  async getBatches(@Param('sessionId') sessionId: string) {
+    return this.bulkMessageService.getBatches(sessionId);
+  }
 }

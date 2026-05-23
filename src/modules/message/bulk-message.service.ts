@@ -97,6 +97,13 @@ export class BulkMessageService {
     return batch;
   }
 
+  async getBatches(sessionId: string): Promise<MessageBatch[]> {
+    return this.batchRepository.find({
+      where: { sessionId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async cancelBatch(sessionId: string, batchId: string): Promise<MessageBatch> {
     const batch = await this.batchRepository.findOne({
       where: { batchId, sessionId },
