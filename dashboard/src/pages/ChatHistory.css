@@ -4,7 +4,7 @@
 .chats-page-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
+  height: calc(100vh - 80px);
   gap: 1.25rem;
   font-family: 'Inter', sans-serif;
   color: #1e293b;
