@@ -69,6 +69,44 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface Contact {
+  id: string;
+  name?: string;
+  pushName?: string;
+  number: string;
+  isMyContact: boolean;
+  isBlocked: boolean;
+  profilePicUrl?: string;
+}
+
+export interface BatchProgress {
+  total: number;
+  sent: number;
+  failed: number;
+  pending: number;
+  cancelled: number;
+}
+
+export interface BatchMessageResult {
+  chatId: string;
+  status: 'pending' | 'sent' | 'failed' | 'cancelled';
+  messageId?: string;
+  error?: {
+    code: string;
+    message: string;
+  };
+  sentAt?: string;
+}
+
+export interface MessageBatchResponse {
+  batchId: string;
+  status: 'pending' | 'processing' | 'completed' | 'cancelled' | 'failed';
+  progress: BatchProgress;
+  results?: BatchMessageResult[];
+  startedAt?: string;
+  completedAt?: string;
+}
+
 export interface MessageResponse {
   messageId: string;
   timestamp: number;
@@ -189,6 +227,7 @@ export const sessionApi = {
   getQR: (id: string) => request<{ qrCode: string; status: string }>(`/sessions/${id}/qr`),
   getStats: () => request<SessionStats>('/sessions/stats/overview'),
   getGroups: (id: string) => request<{ id: string; name: string }[]>(`/sessions/${id}/groups`),
+  getContacts: (id: string) => request<Contact[]>(`/sessions/${id}/contacts`),
 };
 
 // =============================================================================
@@ -289,6 +328,27 @@ export const messageApi = {
     request<MessageResponse>(`/sessions/${sessionId}/messages/send-document`, {
       method: 'POST',
       body: JSON.stringify({ chatId, url, filename }),
+    }),
+  sendBulk: (sessionId: string, data: any) =>
+    request<{
+      batchId: string;
+      status: string;
+      totalMessages: number;
+      estimatedCompletionTime?: string;
+      statusUrl: string;
+    }>(`/sessions/${sessionId}/messages/send-bulk`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getBatchStatus: (sessionId: string, batchId: string) =>
+    request<MessageBatchResponse>(`/sessions/${sessionId}/messages/batch/${batchId}`),
+  cancelBatch: (sessionId: string, batchId: string) =>
+    request<{
+      batchId: string;
+      status: string;
+      progress: BatchProgress;
+    }>(`/sessions/${sessionId}/messages/batch/${batchId}/cancel`, {
+      method: 'POST',
     }),
 };
 

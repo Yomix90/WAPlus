@@ -15,6 +15,7 @@ export const queryKeys = {
   sessions: ['sessions'] as const,
   sessionStats: ['sessions', 'stats'] as const,
   sessionGroups: (sessionId: string) => ['sessions', sessionId, 'groups'] as const,
+  sessionContacts: (sessionId: string) => ['sessions', sessionId, 'contacts'] as const,
   webhooks: ['webhooks'] as const,
   apiKeys: ['apiKeys'] as const,
   logs: (params: { severity?: string; page: number; limit: number }) =>
@@ -47,6 +48,15 @@ export function useSessionGroupsQuery(sessionId: string, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.sessionGroups(sessionId),
     queryFn: () => sessionApi.getGroups(sessionId),
+    enabled: enabled && !!sessionId,
+    staleTime: 60_000,
+  });
+}
+
+export function useSessionContactsQuery(sessionId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.sessionContacts(sessionId),
+    queryFn: () => sessionApi.getContacts(sessionId),
     enabled: enabled && !!sessionId,
     staleTime: 60_000,
   });
