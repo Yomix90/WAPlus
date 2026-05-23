@@ -390,6 +390,11 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       unreadCount: c.unreadCount || 0,
       timestamp: c.timestamp || 0,
       isGroup: c.isGroup,
+      lastMessage: c.lastMessage
+        ? c.lastMessage.type === 'chat'
+          ? c.lastMessage.body
+          : `[${c.lastMessage.type}]`
+        : '',
     }));
   }
 
