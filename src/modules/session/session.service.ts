@@ -216,7 +216,21 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
       baseDelay: config?.reconnectBaseDelay ?? 5000,
     });
 
-    await this.initializeEngine(id, session);
+    try {
+      await this.initializeEngine(id, session);
+    } catch (error) {
+      this.logger.error(`Failed to start session ${session.name}:`, error instanceof Error ? error.stack : String(error), {
+        sessionId: id,
+        action: 'start_failed',
+      });
+      this.engines.delete(id);
+      await this.updateStatus(id, SessionStatus.FAILED);
+      throw new BadRequestException(
+        `Failed to initialize WhatsApp client. This often happens on a VPS due to missing Chromium dependencies or permissions. Error: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     return this.findOne(id);
   }
 

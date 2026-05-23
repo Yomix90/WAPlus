@@ -40,6 +40,10 @@ export class WhatsAppWebJsPlugin implements IEnginePlugin {
     const puppeteerArgs = (this.context?.config.puppeteerArgs as string[]) ?? [
       '--no-sandbox',
       '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
     ];
 
     const proxyUrl = config.proxyUrl as string | undefined;
