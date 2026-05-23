@@ -92,20 +92,28 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       // Automatically clean up stale Chromium lock files if they exist to prevent startup crashes (POSIX Process SingletonLock)
       const resolvedDataPath = path.resolve(this.config.sessionDataPath);
       const sessionPath = path.join(resolvedDataPath, `session-${this.config.sessionId}`);
+      const authSessionPath = path.join(resolvedDataPath, '.wwebjs_auth', `session-${this.config.sessionId}`);
+      
       const lockPaths = [
         path.join(sessionPath, 'SingletonLock'),
         path.join(sessionPath, 'Default', 'SingletonLock'),
+        path.join(authSessionPath, 'SingletonLock'),
+        path.join(authSessionPath, 'Default', 'SingletonLock'),
       ];
 
       for (const lockPath of lockPaths) {
         try {
-          if (fs.existsSync(lockPath)) {
-            // Delete if exists
+          // Use lstatSync to detect broken symlinks (which exist but fs.existsSync returns false for)
+          const stat = fs.lstatSync(lockPath);
+          if (stat) {
             fs.unlinkSync(lockPath);
             this.logger.log(`Cleaned up stale Chromium lock file: ${lockPath}`);
           }
         } catch (err) {
-          this.logger.warn(`Failed to clean up stale Chromium lock file ${lockPath}: ${String(err)}`);
+          // If file doesn't exist (ENOENT), ignore. Otherwise log if we failed to delete an existing lock.
+          if ((err as any).code !== 'ENOENT') {
+            this.logger.warn(`Failed to clean up stale Chromium lock file ${lockPath}: ${String(err)}`);
+          }
         }
       }
 
