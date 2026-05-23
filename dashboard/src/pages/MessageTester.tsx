@@ -1197,6 +1197,18 @@ export function MessageTester() {
                             <span className="failed-count">{camp.progress?.failed || 0} échoués</span>
                           </span>
                         </div>
+                        <div className="camp-progress-section">
+                          <div className="camp-progress-track">
+                            <div 
+                              className="camp-progress-fill"
+                              style={{ 
+                                width: `${Math.min(100, Math.round(
+                                  (((camp.progress?.sent || 0) + (camp.progress?.failed || 0)) / (camp.progress?.total || 1)) * 100
+                                ))}%` 
+                              }}
+                            />
+                          </div>
+                        </div>
                       </div>
                       <button
                         type="button"
