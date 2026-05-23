@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { Client, LocalAuth, MessageMedia } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import * as path from 'path';
+import * as fs from 'fs';
 import {
   IWhatsAppEngine,
   EngineStatus,
@@ -88,10 +89,30 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
         );
       }
 
+      // Automatically clean up stale Chromium lock files if they exist to prevent startup crashes (POSIX Process SingletonLock)
+      const resolvedDataPath = path.resolve(this.config.sessionDataPath);
+      const sessionPath = path.join(resolvedDataPath, `session-${this.config.sessionId}`);
+      const lockPaths = [
+        path.join(sessionPath, 'SingletonLock'),
+        path.join(sessionPath, 'Default', 'SingletonLock'),
+      ];
+
+      for (const lockPath of lockPaths) {
+        try {
+          if (fs.existsSync(lockPath)) {
+            // Delete if exists
+            fs.unlinkSync(lockPath);
+            this.logger.log(`Cleaned up stale Chromium lock file: ${lockPath}`);
+          }
+        } catch (err) {
+          this.logger.warn(`Failed to clean up stale Chromium lock file ${lockPath}: ${String(err)}`);
+        }
+      }
+
       this.client = new Client({
         authStrategy: new LocalAuth({
           clientId: this.config.sessionId,
-          dataPath: path.resolve(this.config.sessionDataPath),
+          dataPath: resolvedDataPath,
         }),
         puppeteer: {
           headless: this.config.puppeteer?.headless ?? true,
