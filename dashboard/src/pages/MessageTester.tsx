@@ -478,12 +478,12 @@ export function MessageTester() {
 
   // Filter Contacts List - Safe & Crashproof
   const filteredContacts = Array.isArray(sessionContacts) ? sessionContacts.filter(c => {
-    if (!c) return false;
+    if (!c || !c.id) return false;
     const search = contactsSearch.toLowerCase();
     const name = (c.name || '').toLowerCase();
     const pushName = (c.pushName || '').toLowerCase();
-    const number = (c.number || '').toLowerCase();
-    const id = (c.id || '').toLowerCase();
+    const number = (c.id.split('@')[0] || '').toLowerCase();
+    const id = c.id.toLowerCase();
     return name.includes(search) || pushName.includes(search) || number.includes(search) || id.includes(search);
   }) : [];
 
@@ -818,7 +818,7 @@ export function MessageTester() {
                           />
                           <div className="contact-details-label">
                             <span className="contact-name">{c.name || c.pushName || 'Nom inconnu'}</span>
-                            <span className="contact-phone">+{c.number}</span>
+                            <span className="contact-phone">+{c.id.split('@')[0]}</span>
                           </div>
                         </label>
                       ))}
