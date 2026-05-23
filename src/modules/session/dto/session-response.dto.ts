@@ -31,12 +31,15 @@ export class SessionResponseDto {
 }
 
 export class QRCodeResponseDto {
-  @ApiProperty({
-    description: 'QR code as data URL',
+  @ApiPropertyOptional({
+    description: 'QR code as data URL, or null if not ready yet',
     example: 'data:image/png;base64,...',
   })
-  qrCode: string;
+  qrCode: string | null;
 
   @ApiProperty({ enum: SessionStatus, example: SessionStatus.QR_READY })
   status: SessionStatus;
+
+  @ApiPropertyOptional({ description: 'Optional status message details' })
+  message?: string;
 }

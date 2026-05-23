@@ -191,7 +191,7 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     const session = await this.findOne(id);
 
     if (this.engines.has(id)) {
-      throw new BadRequestException('Session is already started');
+      return session;
     }
 
     // Execute hook before starting
@@ -443,21 +443,33 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     return this.findOne(id);
   }
 
-  async getQRCode(id: string): Promise<{ qrCode: string; status: SessionStatus }> {
+  async getQRCode(id: string): Promise<{ qrCode: string | null; status: SessionStatus; message?: string }> {
     const session = await this.findOne(id);
     const engine = this.engines.get(id);
 
     if (!engine) {
-      throw new BadRequestException('Session is not started. Call POST /sessions/:id/start first.');
+      return {
+        qrCode: null,
+        status: session.status,
+        message: 'Session is not started. Call POST /sessions/:id/start first.',
+      };
     }
 
     const qrCode = engine.getQRCode();
 
     if (!qrCode) {
       if (session.status === SessionStatus.READY) {
-        throw new BadRequestException('Session is already authenticated, no QR code needed');
+        return {
+          qrCode: null,
+          status: session.status,
+          message: 'Session is already authenticated, no QR code needed',
+        };
       }
-      throw new BadRequestException('QR code is not ready yet. Please wait...');
+      return {
+        qrCode: null,
+        status: session.status,
+        message: 'QR code is not ready yet. Please wait...',
+      };
     }
 
     return {
